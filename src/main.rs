@@ -153,6 +153,17 @@ fn main() {
             };
 
             input_file.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+            let mut output_file_path = file_path.to_string();
+            output_file_path.truncate(file_path.len() - 3);
+
+            let mut output_file = match fs::File::create(output_file_path) {
+                Ok(output_file) => output_file,
+                Err(e) => {
+                    eprintln!("Erro ao criar o arquivo de saída: {}", e);
+                    std::process::exit(1);
+                }
+            };
             
             let mut decoder = ArithmeticDecoder::new(
                 match low {
@@ -165,19 +176,7 @@ fn main() {
                 }, 
                 arithmetic_coding_info.probability_table.to_owned(),
             );
-            println!("{:?}", decoder);
-            /*decoder.decode();
-
-            let mut output_file_path = file_path.to_string();
-            output_file_path.truncate(file_path.len() - 3);
-
-            match fs::write(output_file_path + ".dec", decoded_data) {
-                Ok(_) => {}
-                Err(e) => {
-                    eprintln!("Erro ao criar o arquivo de saída: {}", e);
-                    std::process::exit(1);
-                }
-            }*/
+            decoder.decode(encoded_data_len, &mut input_file, &mut output_file);
         }
         Operation::Encode => {
             let low = match low {

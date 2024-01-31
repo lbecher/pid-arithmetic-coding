@@ -21,7 +21,10 @@ pub struct ArithmeticEncoder {
 }
 
 impl ArithmeticEncoder {
-    pub fn new(low: u32, high: u32) -> Self {
+    pub fn new(
+        low: u32, 
+        high: u32,
+    ) -> Self {
         let mut encoded_data = Vec::new();
         encoded_data.push(0);
         Self {
@@ -35,7 +38,11 @@ impl ArithmeticEncoder {
         }
     }
 
-    pub fn encode(&mut self, input_file: &mut File, output_file: &mut File,) {
+    pub fn encode(
+        &mut self, 
+        input_file: &mut File, 
+        output_file: &mut File,
+    ) {
         let bytes = self.inc_or_add_symbol(input_file);
         self.calc_symbol_prob(bytes);
         input_file.seek(std::io::SeekFrom::Start(0)).unwrap();
@@ -50,7 +57,10 @@ impl ArithmeticEncoder {
         }
     }
 
-    fn inc_or_add_symbol(&mut self, input_file: &File) -> usize {
+    fn inc_or_add_symbol(
+        &mut self, 
+        input_file: &File,
+    ) -> usize {
         let reader = BufReader::new(input_file);
 
         let mut bytes_count = 0;

@@ -10,7 +10,11 @@ pub struct ArithmeticDecoder {
 }
 
 impl ArithmeticDecoder {
-    pub fn new(low: u32, high: u32, probability_table: Vec<TableSymbol>) -> Self {
+    pub fn new(
+        low: u32, 
+        high: u32, 
+        probability_table: Vec<TableSymbol>,
+    ) -> Self {
         Self {
             low,
             high,
@@ -18,7 +22,12 @@ impl ArithmeticDecoder {
         }
     }
 
-    pub fn decode(&mut self, file: &File) {
+    pub fn decode(
+        &mut self, 
+        encoded_data_len: u64, 
+        input_file: &mut File, 
+        output_file: &mut File,
+    ) {
 
     }
 }
