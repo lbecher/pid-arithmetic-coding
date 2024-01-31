@@ -1,5 +1,9 @@
 use std::env;
 use std::fs;
+use std::io::Read;
+use std::io::Seek;
+use std::io::Write;
+use std::mem::size_of;
 use bincode::{
     deserialize_from,
     serialize_into,
@@ -12,7 +16,7 @@ mod structures;
 use crate::{
     decoder::ArithmeticDecoder,
     encoder::ArithmeticEncoder,
-    structures::ArithmeticCoding,
+    structures::ArithmeticCodingInfo,
 };
 
 #[derive(Debug, Clone)]
@@ -112,7 +116,7 @@ fn main() {
                 std::process::exit(1);
             }
 
-            let input_file = match fs::File::open(file_path) {
+            let mut input_file = match fs::File::open(file_path) {
                 Ok(input_file) => input_file,
                 Err(e) => {
                     eprintln!("Erro ao abrir o arquivo: {}", e);
@@ -120,27 +124,49 @@ fn main() {
                 }
             };
 
-            let arithmetic_coding: ArithmeticCoding = match deserialize_from(input_file) {
-                Ok(arithmetic_coding) => arithmetic_coding,
+            let input_file_len = match input_file.metadata() {
+                Ok(metadata) => metadata.len(),
                 Err(e) => {
-                    eprintln!("Erro ao abrir o arquivo: {}", e);
+                    eprintln!("Erro ao obter metadados do arquivo de entrada: {}", e);
                     std::process::exit(1);
                 }
             };
+
+            let encoded_data_len_position = input_file_len - size_of::<u64>() as u64;
+            input_file.seek(std::io::SeekFrom::Start(encoded_data_len_position)).unwrap();
+
+            let mut encoded_data_len_buffer: [u8; 8] = [0,0,0,0,0,0,0,0];
+            if let Err(e) = input_file.read_exact(&mut encoded_data_len_buffer) {
+                eprintln!("Erro ao obter o tamanho dos dados codificados: {}", e);
+                std::process::exit(1);
+            };
+            let encoded_data_len = u64::from_le_bytes(encoded_data_len_buffer);
+
+            input_file.seek(std::io::SeekFrom::Start(encoded_data_len)).unwrap();
+
+            let arithmetic_coding_info: ArithmeticCodingInfo = match deserialize_from(&mut input_file) {
+                Ok(arithmetic_coding_info) => arithmetic_coding_info,
+                Err(e) => {
+                    eprintln!("Erro ao ler o arquivo de entrada: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            input_file.seek(std::io::SeekFrom::Start(0)).unwrap();
             
             let mut decoder = ArithmeticDecoder::new(
                 match low {
                     Some(low) => low,
-                    None => arithmetic_coding.low,
+                    None => arithmetic_coding_info.low,
                 }, 
                 match high {
                     Some(high) => high,
-                    None => arithmetic_coding.high,
+                    None => arithmetic_coding_info.high,
                 }, 
-                arithmetic_coding.probability_table.to_owned(),
+                arithmetic_coding_info.probability_table.to_owned(),
             );
-            decoder.decode(arithmetic_coding.encoded_data.as_slice());
-            let decoded_data = decoder.get_decoded_data();
+            println!("{:?}", decoder);
+            /*decoder.decode();
 
             let mut output_file_path = file_path.to_string();
             output_file_path.truncate(file_path.len() - 3);
@@ -151,7 +177,7 @@ fn main() {
                     eprintln!("Erro ao criar o arquivo de saída: {}", e);
                     std::process::exit(1);
                 }
-            }
+            }*/
         }
         Operation::Encode => {
             let low = match low {
@@ -169,21 +195,17 @@ fn main() {
                 }
             };
 
-            let file_buffer = match fs::read(file_path) {
-                Ok(file_buffer) => file_buffer,
+            let mut input_file = match fs::File::open(file_path) {
+                Ok(input_file) => input_file,
                 Err(e) => {
                     eprintln!("Erro ao abrir o arquivo: {}", e);
                     std::process::exit(1);
                 }
             };
 
-            let mut encoder = ArithmeticEncoder::new(low, high);
-            encoder.encode(file_buffer.as_slice());
-            let encoded_data = encoder.get_encoded_data();
-
             let output_file_path = String::from(file_path) + ".ac";
 
-            let output_file = match fs::File::create(output_file_path) {
+            let mut output_file = match fs::File::create(output_file_path) {
                 Ok(output_file) => output_file,
                 Err(e) => {
                     eprintln!("Erro ao criar o arquivo de saída: {}", e);
@@ -191,7 +213,24 @@ fn main() {
                 }
             };
 
-            if let Err(e) = serialize_into(output_file, &encoded_data) {
+            let mut encoder = ArithmeticEncoder::new(low, high);
+            encoder.encode(&mut input_file, &mut output_file);
+            let arithmetic_coding_info = encoder.get_arithmetic_coding_info();
+
+            let encoded_data_len = match output_file.metadata() {
+                Ok(metadata) => metadata.len(),
+                Err(e) => {
+                    eprintln!("Erro ao obter metadados do arquivo de saída: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            if let Err(e) = serialize_into(&mut output_file, &arithmetic_coding_info) {
+                eprintln!("Erro ao gravar no arquivo de saída: {}", e);
+                std::process::exit(1);
+            };
+
+            if let Err(e) = output_file.write_all(&encoded_data_len.to_le_bytes()) {
                 eprintln!("Erro ao gravar no arquivo de saída: {}", e);
                 std::process::exit(1);
             };

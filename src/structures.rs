@@ -12,9 +12,8 @@ pub struct TableSymbol {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct ArithmeticCoding {
+pub struct ArithmeticCodingInfo {
     pub low: u32,
     pub high: u32,
     pub probability_table: Vec<TableSymbol>,
-    pub encoded_data: Vec<u32>,
 }
