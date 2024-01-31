@@ -156,6 +156,7 @@ fn main() {
 
             let mut output_file_path = file_path.to_string();
             output_file_path.truncate(file_path.len() - 3);
+            output_file_path += ".dec";
 
             let mut output_file = match fs::File::create(output_file_path) {
                 Ok(output_file) => output_file,
