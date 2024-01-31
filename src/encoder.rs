@@ -15,6 +15,7 @@ pub struct ArithmeticEncoder {
     initial_high: u32,
     low: u32,
     high: u32,
+    high_divisor: u32,
     cumulative_probability: f64,
     probability_table: Vec<TableSymbol>,
     value: u32,
@@ -25,13 +26,14 @@ impl ArithmeticEncoder {
         low: u32, 
         high: u32,
     ) -> Self {
-        let mut encoded_data = Vec::new();
-        encoded_data.push(0);
+        let high_digits = (high as f64).log10() as usize + 1;
+        let high_divisor = 10u32.pow((high_digits - 1) as u32);
         Self {
             initial_low: low,
             initial_high: high,
             low,
             high,
+            high_divisor,
             cumulative_probability: 0.0,
             probability_table: Vec::new(),
             value: 0,
@@ -122,77 +124,78 @@ impl ArithmeticEncoder {
                     .iter()
                     .position(|s| s.symbol == symbol);
 
-                if let Some(index) = position {
-                    let symbol = self.probability_table.get(index).unwrap();
-
-                    let range = (self.high - self.low + 1) as f64;
-
-                    let mut new_low = self.low;
-                    let mut new_high = self.low + ((range * symbol.accumulated_probability) as u32) - 1;
-
-                    if index > 0 {
-                        if let Some(symbol) = self.probability_table.get(index - 1) {
-                            new_low = self.low + ((range * symbol.accumulated_probability) as u32);
-                        }
+                let index = match position {
+                    Some(index) => index,
+                    None => {
+                        println!("Um símbolo lido não foi registrado na tabela.");
+                        std::process::exit(1);
                     }
+                };
 
-                    print!("\n{} |\t{}\t{} |",
-                        String::from_utf8([symbol.symbol].to_vec()).unwrap(),
+                let symbol = self.probability_table.get(index).unwrap();
+
+                let range = (self.high - self.low + 1) as f64;
+
+                let mut new_low = self.low;
+                let mut new_high = self.low + ((range * symbol.accumulated_probability) as u32) - 1;
+
+                if index > 0 {
+                    if let Some(symbol) = self.probability_table.get(index - 1) {
+                        new_low = self.low + ((range * symbol.accumulated_probability) as u32);
+                    }
+                }
+
+                print!("\n{} |\t{}\t{} |",
+                    String::from_utf8([symbol.symbol].to_vec()).unwrap(),
+                    new_low,
+                    new_high,
+                );
+
+                let mut low_first_digit = new_low / self.high_divisor;
+                let mut high_first_digit = new_high / self.high_divisor;
+
+                while low_first_digit == high_first_digit {
+                    new_low = (new_low - low_first_digit * self.high_divisor) * 10;
+                    new_high = (new_high - high_first_digit * self.high_divisor) * 10 + 9;
+
+                    print!(" {}\n  |\t{}\t{} |",
+                        low_first_digit,
                         new_low,
                         new_high,
                     );
 
-                    let high_digits = (new_high as f64).log10() as usize + 1;
-                    let divisor = 10u32.pow((high_digits - 1) as u32);
-
-                    let mut low_first_digit = new_low / divisor;
-                    let mut high_first_digit = new_high / divisor;
-
-                    while low_first_digit == high_first_digit {
-                        new_low = (new_low - low_first_digit * divisor) * 10;
-                        new_high = (new_high - high_first_digit * divisor) * 10 + 9;
-
-                        print!(" {}\n  |\t{}\t{} |",
-                            low_first_digit,
-                            new_low,
-                            new_high,
-                        );
-
-                        match 10u32.checked_mul(self.value) {
-                            Some(mul) => {
-                                //print!("mul: {}, ", mul);
-                                match mul.checked_add(low_first_digit) {
-                                    Some(add) => {
-                                        //print!("add: {}", add);
-                                        self.value = add;
-                                    }
-                                    None => {
-                                        if let Err(e) = output_file.write_all(&self.value.to_le_bytes()) {
-                                            eprintln!("Erro ao gravar no arquivo de saída: {}", e);
-                                            std::process::exit(1);
-                                        };
-                                        self.value = low_first_digit;
-                                    }
+                    match 10u32.checked_mul(self.value) {
+                        Some(mul) => {
+                            //print!("mul: {}, ", mul);
+                            match mul.checked_add(low_first_digit) {
+                                Some(add) => {
+                                    //print!("add: {}", add);
+                                    self.value = add;
+                                }
+                                None => {
+                                    if let Err(e) = output_file.write_all(&self.value.to_le_bytes()) {
+                                        eprintln!("Erro ao gravar no arquivo de saída: {}", e);
+                                        std::process::exit(1);
+                                    };
+                                    self.value = low_first_digit;
                                 }
                             }
-                            None => {
-                                if let Err(e) = output_file.write_all(&self.value.to_le_bytes()) {
-                                    eprintln!("Erro ao gravar no arquivo de saída: {}", e);
-                                    std::process::exit(1);
-                                };
-                                self.value = low_first_digit;
-                            }
                         }
-
-                        low_first_digit = new_low / divisor;
-                        high_first_digit = new_high / divisor;
+                        None => {
+                            if let Err(e) = output_file.write_all(&self.value.to_le_bytes()) {
+                                eprintln!("Erro ao gravar no arquivo de saída: {}", e);
+                                std::process::exit(1);
+                            };
+                            self.value = low_first_digit;
+                        }
                     }
 
-                    self.low = new_low;
-                    self.high = new_high;
+                    low_first_digit = new_low / self.high_divisor;
+                    high_first_digit = new_high / self.high_divisor;
                 }
-            } else {
-                break;
+
+                self.low = new_low;
+                self.high = new_high;
             }
         }
 
