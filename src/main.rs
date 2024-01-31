@@ -26,7 +26,7 @@ fn main() {
 
     if args.len() < 3 {
         println!("\nUso: {} <parâmetros> <operação>\n", args[0]);
-        println!("Operações válidas:");
+        println!("Operações suportadas:");
         println!("  -e, --encode <arquivo>    Codificar o conteúdo do arquivo informado.");
         println!("  -d, --decode <arquivo>    Decodificar o conteúdo do arquivo informado.\n");
         println!("Parâmetros de codificação:");
@@ -79,13 +79,13 @@ fn main() {
                 if let Some(value) = iter.next() {
                     file_path = Some(value.as_str());
                 } else {
-                    println!("Caminho para o arquivo não fornecido.");
+                    println!("Arquivo de entrada não fornecido.");
                     std::process::exit(1);
                 }
             }
             _ => {
                 println!("\nUso: {} <parâmetros> <operação>\n", args[0]);
-                println!("Operações válidas:");
+                println!("Operações suportadas:");
                 println!("  -e, --encode <arquivo>    Codificar o conteúdo do arquivo informado.");
                 println!("  -d, --decode <arquivo>    Decodificar o conteúdo do arquivo informado.\n");
                 println!("Parâmetros de codificação:");
@@ -96,9 +96,16 @@ fn main() {
         }
     }
 
+    let operation = match operation {
+        Some(operation) => operation,
+        None => {
+            println!("Operação não informada.");
+            std::process::exit(1);
+        }
+    };
     let file_path = file_path.unwrap();
 
-    match operation.unwrap().clone() {
+    match operation.clone() {
         Operation::Decode => {
             if !file_path.ends_with(".ac") {
                 println!("O arquivo informado não possui a extensão \".ac\"!");
@@ -122,8 +129,14 @@ fn main() {
             };
             
             let mut decoder = ArithmeticDecoder::new(
-                arithmetic_coding.low, 
-                arithmetic_coding.high, 
+                match low {
+                    Some(low) => low,
+                    None => arithmetic_coding.low,
+                }, 
+                match high {
+                    Some(high) => high,
+                    None => arithmetic_coding.high,
+                }, 
                 arithmetic_coding.probability_table.to_owned(),
             );
             decoder.decode(arithmetic_coding.encoded_data.as_slice());
@@ -141,6 +154,21 @@ fn main() {
             }
         }
         Operation::Encode => {
+            let low = match low {
+                Some(low) => low,
+                None => {
+                    println!("Valor de low não informado.");
+                    std::process::exit(1);
+                }
+            };
+            let high = match high {
+                Some(high) => high,
+                None => {
+                    println!("Valor de high não informado.");
+                    std::process::exit(1);
+                }
+            };
+
             let file_buffer = match fs::read(file_path) {
                 Ok(file_buffer) => file_buffer,
                 Err(e) => {
@@ -149,7 +177,7 @@ fn main() {
                 }
             };
 
-            let mut encoder = ArithmeticEncoder::new(0, 9999);
+            let mut encoder = ArithmeticEncoder::new(low, high);
             encoder.encode(file_buffer.as_slice());
             let encoded_data = encoder.get_encoded_data();
 

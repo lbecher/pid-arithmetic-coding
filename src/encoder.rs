@@ -60,6 +60,8 @@ impl ArithmeticEncoder {
     }
 
     fn calc_symbol_prob(&mut self, bytes: usize) {
+        print!("\n");
+
         let n = bytes as f64;
 
         for symbol in self.probability_table.iter_mut() {
@@ -70,7 +72,7 @@ impl ArithmeticEncoder {
             self.cumulative_probability += probability;
             symbol.accumulated_probability = self.cumulative_probability;
 
-            println!("Simbolo: {}; Quantidade: {}; Probabilidade: {}; P. Acomulada: {}", 
+            println!("Símbolo: {}; Quantidade: {}; Probabilidade: {}; Probabilidade acumulada: {}", 
                 String::from_utf8(vec![symbol.symbol]).unwrap(), 
                 symbol.occurrence,
                 symbol.probability,
@@ -151,6 +153,6 @@ impl ArithmeticEncoder {
             }
         }
 
-        print!("\n");
+        print!("\n\n");
     }
 }
