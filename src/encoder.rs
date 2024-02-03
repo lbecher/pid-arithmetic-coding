@@ -1,24 +1,20 @@
+use debug_print::debug_print;
 use std::fs::File;
-use std::io::BufReader;
-use std::io::Read;
-use std::io::Seek;
-use std::io::Write;
-
-use crate::structures::{
-    ArithmeticCodingInfo,
-    TableSymbol,
+use std::io::{
+    BufReader, 
+    Read, 
+    Seek, 
+    Write,
 };
+
+use arithmetic_coding::ArithmeticCoding;
 
 #[derive(Debug)]
 pub struct ArithmeticEncoder {
     initial_low: u32,
     initial_high: u32,
-    low: u32,
-    high: u32,
-    high_divisor: u32,
-    cumulative_probability: f64,
-    probability_table: Vec<TableSymbol>,
-    value: u32,
+    arithmetic_coding: ArithmeticCoding,
+    current_encoded_value: Option<u32>,
 }
 
 impl ArithmeticEncoder {
@@ -26,18 +22,22 @@ impl ArithmeticEncoder {
         low: u32, 
         high: u32,
     ) -> Self {
-        let high_digits = (high as f64).log10() as usize + 1;
-        let high_divisor = 10u32.pow((high_digits - 1) as u32);
+        let arithmetic_coding = ArithmeticCoding::new(low, high);
         Self {
             initial_low: low,
             initial_high: high,
-            low,
-            high,
-            high_divisor,
-            cumulative_probability: 0.0,
-            probability_table: Vec::new(),
-            value: 0,
+            arithmetic_coding,
+            current_encoded_value: None,
         }
+    }
+
+    pub fn get_arithmetic_coding(
+        &self,
+    ) -> ArithmeticCoding {
+        let mut arithmetic_coding = self.arithmetic_coding.clone();
+        arithmetic_coding.set_low(self.initial_low);
+        arithmetic_coding.set_high(self.initial_high);
+        arithmetic_coding
     }
 
     pub fn encode(
@@ -45,165 +45,90 @@ impl ArithmeticEncoder {
         input_file: &mut File, 
         output_file: &mut File,
     ) {
-        let bytes = self.inc_or_add_symbol(input_file);
-        self.calc_symbol_prob(bytes);
         input_file.seek(std::io::SeekFrom::Start(0)).unwrap();
-        self.update_low_and_high(input_file, output_file);
-    }
+        self.generate_symbol_table(input_file);
+        input_file.seek(std::io::SeekFrom::Start(0)).unwrap();
 
-    pub fn get_arithmetic_coding_info(&self) -> ArithmeticCodingInfo {
-        ArithmeticCodingInfo {
-            low: self.initial_low,
-            high: self.initial_high,
-            probability_table: self.probability_table.to_vec(),
+        debug_print!("\n Símbolo |\tLow\tHigh\t| Dígito");
+        debug_print!("\n---------|----------------------|---------");
+
+        let reader = BufReader::new(input_file);
+        for byte in reader.bytes() {
+            match byte {
+                Ok(byte) => {
+                    let emitted_digits = self.arithmetic_coding.calculate_arithmetic_coding(byte);
+                    self.handle_emitted_digits(emitted_digits, output_file);
+                }
+                Err(e) => {
+                    eprintln!("Erro ao ler o arquivo de entrada: {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
+        self.write_current_encoded_value(output_file);
+
+        debug_print!("\n\n");
     }
 
-    fn inc_or_add_symbol(
+    fn generate_symbol_table(
         &mut self, 
         input_file: &File,
-    ) -> usize {
+    ) {
         let reader = BufReader::new(input_file);
-
-        let mut bytes_count = 0;
-
         for byte in reader.bytes() {
-            if let Ok(symbol) = byte {
-                let position = self.probability_table
-                    .iter()
-                    .position(|s| s.symbol == symbol);
-
-                if let Some(index) = position {
-                    self.probability_table[index].occurrence += 1;
-                } else {
-                    self.probability_table.push(TableSymbol {
-                        symbol: symbol,
-                        occurrence: 1,
-                        probability: 0.0,
-                        accumulated_probability: 0.0,
-                    });
+            match byte {
+                Ok(byte) => {
+                    self.arithmetic_coding.add_or_increment_symbol(byte);
                 }
-
-                bytes_count += 1;
-            } else {
-                break;
+                Err(e) => {
+                    eprintln!("Erro ao ler o arquivo de entrada: {}", e);
+                    std::process::exit(1);
+                }
             }
         }
-
-        bytes_count
+        self.arithmetic_coding.calculate_probabilities();
     }
 
-    fn calc_symbol_prob(&mut self, bytes: usize) {
-        print!("\n");
-
-        let n = bytes as f64;
-
-        for symbol in self.probability_table.iter_mut() {
-            let n_sigma = symbol.occurrence as f64;
-            let probability = n_sigma / n;
-
-            symbol.probability = probability;
-            self.cumulative_probability += probability;
-            symbol.accumulated_probability = self.cumulative_probability;
-
-            println!("Símbolo: {}; Quantidade: {}; Probabilidade: {}; Probabilidade acumulada: {}", 
-                String::from_utf8(vec![symbol.symbol]).unwrap(), 
-                symbol.occurrence,
-                symbol.probability,
-                symbol.accumulated_probability,
-            );
-        }
-    }
-
-    fn update_low_and_high(&mut self, input_file: &File, output_file: &mut File) {
-        let reader = BufReader::new(input_file);
-
-        for byte in reader.bytes() {
-            if let Ok(symbol) = byte {
-                let position = self.probability_table
-                    .iter()
-                    .position(|s| s.symbol == symbol);
-
-                let index = match position {
-                    Some(index) => index,
-                    None => {
-                        println!("Um símbolo lido não foi registrado na tabela.");
-                        std::process::exit(1);
-                    }
-                };
-
-                let symbol = self.probability_table.get(index).unwrap();
-
-                let range = (self.high - self.low + 1) as f64;
-
-                let mut new_low = self.low;
-                let mut new_high = self.low + ((range * symbol.accumulated_probability) as u32) - 1;
-
-                if index > 0 {
-                    if let Some(symbol) = self.probability_table.get(index - 1) {
-                        new_low = self.low + ((range * symbol.accumulated_probability) as u32);
-                    }
-                }
-
-                print!("\n{} |\t{}\t{} |",
-                    String::from_utf8([symbol.symbol].to_vec()).unwrap(),
-                    new_low,
-                    new_high,
-                );
-
-                let mut low_first_digit = new_low / self.high_divisor;
-                let mut high_first_digit = new_high / self.high_divisor;
-
-                while low_first_digit == high_first_digit {
-                    new_low = (new_low - low_first_digit * self.high_divisor) * 10;
-                    new_high = (new_high - high_first_digit * self.high_divisor) * 10 + 9;
-
-                    print!(" {}\n  |\t{}\t{} |",
-                        low_first_digit,
-                        new_low,
-                        new_high,
-                    );
-
-                    match 10u32.checked_mul(self.value) {
-                        Some(mul) => {
-                            //print!("mul: {}, ", mul);
-                            match mul.checked_add(low_first_digit) {
-                                Some(add) => {
-                                    //print!("add: {}", add);
-                                    self.value = add;
-                                }
-                                None => {
-                                    if let Err(e) = output_file.write_all(&self.value.to_le_bytes()) {
-                                        eprintln!("Erro ao gravar no arquivo de saída: {}", e);
-                                        std::process::exit(1);
-                                    };
-                                    self.value = low_first_digit;
-                                }
+    fn handle_emitted_digits(
+        &mut self,
+        emitted_digits: Vec<u32>,
+        output_file: &mut File,
+    ) {
+        for digit in emitted_digits {
+            if let Some(current_encoded_value) = self.current_encoded_value {
+                match 10u32.checked_mul(current_encoded_value) {
+                    Some(mul) => {
+                        match mul.checked_add(digit) {
+                            Some(add) => {
+                                self.current_encoded_value = Some(add);
+                            }
+                            None => {
+                                self.write_current_encoded_value(output_file);
+                                self.current_encoded_value = Some(digit);
                             }
                         }
-                        None => {
-                            if let Err(e) = output_file.write_all(&self.value.to_le_bytes()) {
-                                eprintln!("Erro ao gravar no arquivo de saída: {}", e);
-                                std::process::exit(1);
-                            };
-                            self.value = low_first_digit;
-                        }
                     }
-
-                    low_first_digit = new_low / self.high_divisor;
-                    high_first_digit = new_high / self.high_divisor;
+                    None => {
+                        self.write_current_encoded_value(output_file);
+                        self.current_encoded_value = Some(digit);
+                    }
                 }
-
-                self.low = new_low;
-                self.high = new_high;
+            } else {
+                self.current_encoded_value = Some(digit);
             }
         }
+    }
 
-        if let Err(e) = output_file.write_all(&self.value.to_le_bytes()) {
-            eprintln!("Erro ao gravar no arquivo de saída: {}", e);
-            std::process::exit(1);
-        };
-
-        print!("\n\n");
+    fn write_current_encoded_value(
+        &self, 
+        output_file: &mut File,
+    ) {
+        if let Some(encoded_value) = self.current_encoded_value {
+            let encoded_value_buffer = encoded_value.to_le_bytes();
+            if let Err(e) = output_file.write_all(&encoded_value_buffer) {
+                eprintln!("Erro ao gravar no arquivo de saída: {}", e);
+                std::process::exit(1);
+            };
+        }
     }
 }

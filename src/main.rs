@@ -11,13 +11,13 @@ use bincode::{
 
 mod decoder;
 mod encoder;
-mod structures;
 
 use crate::{
     decoder::ArithmeticDecoder,
     encoder::ArithmeticEncoder,
-    structures::ArithmeticCodingInfo,
 };
+
+use arithmetic_coding::ArithmeticCoding;
 
 #[derive(Debug, Clone)]
 enum Operation {
@@ -144,13 +144,19 @@ fn main() {
 
             input_file.seek(std::io::SeekFrom::Start(encoded_data_len)).unwrap();
 
-            let arithmetic_coding_info: ArithmeticCodingInfo = match deserialize_from(&mut input_file) {
-                Ok(arithmetic_coding_info) => arithmetic_coding_info,
+            let mut arithmetic_coding: ArithmeticCoding = match deserialize_from(&mut input_file) {
+                Ok(arithmetic_coding) => arithmetic_coding,
                 Err(e) => {
                     eprintln!("Erro ao ler o arquivo de entrada: {}", e);
                     std::process::exit(1);
                 }
             };
+            if let Some(low) = low {
+                arithmetic_coding.set_low(low);
+            }
+            if let Some(high) = high {
+                arithmetic_coding.set_high(high);
+            }
 
             input_file.seek(std::io::SeekFrom::Start(0)).unwrap();
 
@@ -166,17 +172,7 @@ fn main() {
                 }
             };
             
-            let mut decoder = ArithmeticDecoder::new(
-                match low {
-                    Some(low) => low,
-                    None => arithmetic_coding_info.low,
-                }, 
-                match high {
-                    Some(high) => high,
-                    None => arithmetic_coding_info.high,
-                }, 
-                arithmetic_coding_info.probability_table.to_owned(),
-            );
+            let mut decoder = ArithmeticDecoder::new(arithmetic_coding);
             decoder.decode(encoded_data_len, &mut input_file, &mut output_file);
         }
         Operation::Encode => {
@@ -215,7 +211,7 @@ fn main() {
 
             let mut encoder = ArithmeticEncoder::new(low, high);
             encoder.encode(&mut input_file, &mut output_file);
-            let arithmetic_coding_info = encoder.get_arithmetic_coding_info();
+            let arithmetic_coding = encoder.get_arithmetic_coding();
 
             let encoded_data_len = match output_file.metadata() {
                 Ok(metadata) => metadata.len(),
@@ -225,7 +221,7 @@ fn main() {
                 }
             };
 
-            if let Err(e) = serialize_into(&mut output_file, &arithmetic_coding_info) {
+            if let Err(e) = serialize_into(&mut output_file, &arithmetic_coding) {
                 eprintln!("Erro ao gravar no arquivo de saída: {}", e);
                 std::process::exit(1);
             };
