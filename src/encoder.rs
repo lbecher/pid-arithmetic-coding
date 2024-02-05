@@ -7,7 +7,10 @@ use std::io::{
     Write,
 };
 
-use arithmetic_coding::ArithmeticCoding;
+use arithmetic_coding::{
+    ArithmeticCoding, 
+    Operation,
+};
 
 #[derive(Debug)]
 pub struct ArithmeticEncoder {
@@ -40,36 +43,6 @@ impl ArithmeticEncoder {
         arithmetic_coding
     }
 
-    pub fn encode(
-        &mut self, 
-        input_file: &mut File, 
-        output_file: &mut File,
-    ) {
-        input_file.seek(std::io::SeekFrom::Start(0)).unwrap();
-        self.generate_symbol_table(input_file);
-        input_file.seek(std::io::SeekFrom::Start(0)).unwrap();
-
-        debug_print!("\n Símbolo |\tLow\tHigh\t| Dígito");
-        debug_print!("\n---------|----------------------|---------");
-
-        let reader = BufReader::new(input_file);
-        for byte in reader.bytes() {
-            match byte {
-                Ok(byte) => {
-                    let emitted_digits = self.arithmetic_coding.calculate_arithmetic_coding(byte);
-                    self.handle_emitted_digits(emitted_digits, output_file);
-                }
-                Err(e) => {
-                    eprintln!("Erro ao ler o arquivo de entrada: {}", e);
-                    std::process::exit(1);
-                }
-            }
-        }
-        self.write_current_encoded_value(output_file);
-
-        debug_print!("\n\n");
-    }
-
     fn generate_symbol_table(
         &mut self, 
         input_file: &File,
@@ -87,6 +60,78 @@ impl ArithmeticEncoder {
             }
         }
         self.arithmetic_coding.calculate_probabilities();
+    }
+
+    pub fn encode(
+        &mut self, 
+        input_file: &mut File, 
+        output_file: &mut File,
+    ) {
+        input_file.seek(std::io::SeekFrom::Start(0)).unwrap();
+        self.generate_symbol_table(input_file);
+        input_file.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+        debug_print!("\n Símbolo |\tLow\tHigh\t| Dígito");
+        debug_print!("\n---------|----------------------|---------");
+
+        let reader = BufReader::new(input_file);
+        for byte in reader.bytes() {
+            match byte {
+                Ok(byte) => {
+                    let emitted_digits = self.arithmetic_coding
+                        .calculate_arithmetic_coding(byte, Operation::Encode);
+                    self.handle_emitted_digits(emitted_digits, output_file);
+                }
+                Err(e) => {
+                    eprintln!("Erro ao ler o arquivo de entrada: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        debug_print!("\n         |\t{}\t{}\t|",
+            self.arithmetic_coding.get_low(),
+            self.arithmetic_coding.get_high(),
+        );
+
+        let emitted_digits = self.handle_low_digits();
+        self.handle_emitted_digits(emitted_digits, output_file);
+
+        self.write_current_encoded_value(output_file);
+
+        debug_print!("\n\n");
+    }
+
+    fn handle_low_digits(
+        &self,
+    ) -> Vec<u32> {
+        let mut emitted_digits: Vec<u32> = Vec::new();
+
+        let mut low = self.arithmetic_coding.get_low();
+        
+        let low_digits = (low as f64).log10() as u32 + 1;
+        let mut low_divisor = 10u32.pow(low_digits - 1);
+
+        loop {
+            let low_first_digit = low / low_divisor;
+            low -= low_first_digit * low_divisor;
+
+            debug_print!(" {}\n         |\t{}\t{}\t|",
+                low_first_digit,
+                low,
+                self.arithmetic_coding.get_high(),
+            );
+
+            emitted_digits.push(low_first_digit);
+
+            low_divisor /= 10;
+
+            if low_divisor == 0 {
+                break;
+            }
+        }
+
+        emitted_digits
     }
 
     fn handle_emitted_digits(

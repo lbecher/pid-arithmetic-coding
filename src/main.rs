@@ -17,13 +17,10 @@ use crate::{
     encoder::ArithmeticEncoder,
 };
 
-use arithmetic_coding::ArithmeticCoding;
-
-#[derive(Debug, Clone)]
-enum Operation {
-    Decode,
-    Encode,
-}
+use arithmetic_coding::{
+    ArithmeticCoding,
+    Operation,
+};
 
 fn main() {
     let args: Vec<String> = env::args().collect();

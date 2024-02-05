@@ -7,7 +7,10 @@ use std::io::{
 };
 use std::mem::size_of;
 
-use arithmetic_coding::ArithmeticCoding;
+use arithmetic_coding::{
+    ArithmeticCoding,
+    Operation,
+};
 
 #[derive(Debug)]
 pub struct ArithmeticDecoder {
@@ -59,6 +62,8 @@ impl ArithmeticDecoder {
     ) -> Vec<u8> {
         let mut decoded_simbols: Vec<u8> = Vec::new();
 
+        let symbols_count  = self.arithmetic_coding.get_symbols_count() as f64;
+
         let high_divisor = self.arithmetic_coding.get_high_divisor();
 
         let mut code = value;
@@ -72,15 +77,19 @@ impl ArithmeticDecoder {
         let mut shift = 1;
 
         while code > self.arithmetic_coding.get_low() && code < self.arithmetic_coding.get_high() {
+            //print!(" -- {}", code);
+
             let low = self.arithmetic_coding.get_low();
             let high = self.arithmetic_coding.get_high();
             let range = (high - low + 1) as f64;
-            let probability = (((code - low + 1) as f64 * 10.0 - 1.0) / range) / 10.0;
+            let probability = (code - low + 1) as f64 * symbols_count / range;
 
-            let symbol = self.arithmetic_coding.get_symbol_by_probability(probability);
+            let symbol = self.arithmetic_coding.get_symbol_by_probability(probability / symbols_count);
             decoded_simbols.push(symbol);
 
-            let emitted_digits = self.arithmetic_coding.calculate_arithmetic_coding(symbol);
+            let emitted_digits = self.arithmetic_coding
+                .calculate_arithmetic_coding(symbol, Operation::Decode);
+
             for _digit in emitted_digits {
                 code = value;
 
@@ -93,6 +102,8 @@ impl ArithmeticDecoder {
                     code *= 10u32.pow(shift);
                     shift += 1;
                 }
+
+                //print!(" -+ {}", code);
 
                 value %= code_divisor;
             }
