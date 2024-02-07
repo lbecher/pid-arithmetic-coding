@@ -7,17 +7,15 @@ use std::io::{
     Write,
 };
 
-use arithmetic_coding::{
-    ArithmeticCoding, 
-    Operation,
-};
+use arithmetic_coding::ArithmeticCoding;
 
 #[derive(Debug)]
 pub struct ArithmeticEncoder {
     initial_low: u32,
     initial_high: u32,
     arithmetic_coding: ArithmeticCoding,
-    current_encoded_value: Option<u32>,
+    current_encoded_value: u32,
+    current_encoded_value_digits: u8,
 }
 
 impl ArithmeticEncoder {
@@ -30,8 +28,15 @@ impl ArithmeticEncoder {
             initial_low: low,
             initial_high: high,
             arithmetic_coding,
-            current_encoded_value: None,
+            current_encoded_value: 0,
+            current_encoded_value_digits: 0,
         }
+    }
+
+    pub fn get_current_encoded_value_digits(
+        &self,
+    ) -> u8 {
+        self.current_encoded_value_digits
     }
 
     pub fn get_arithmetic_coding(
@@ -54,7 +59,7 @@ impl ArithmeticEncoder {
                     self.arithmetic_coding.add_or_increment_symbol(byte);
                 }
                 Err(e) => {
-                    eprintln!("Erro ao ler o arquivo de entrada: {}", e);
+                    eprintln!("\nErro ao ler o arquivo de entrada: {}\n", e);
                     std::process::exit(1);
                 }
             }
@@ -79,11 +84,11 @@ impl ArithmeticEncoder {
             match byte {
                 Ok(byte) => {
                     let emitted_digits = self.arithmetic_coding
-                        .calculate_arithmetic_coding(byte, Operation::Encode);
+                        .calculate_arithmetic_coding(byte);
                     self.handle_emitted_digits(emitted_digits, output_file);
                 }
                 Err(e) => {
-                    eprintln!("Erro ao ler o arquivo de entrada: {}", e);
+                    eprintln!("\nErro ao ler o arquivo de entrada: {}\n", e);
                     std::process::exit(1);
                 }
             }
@@ -99,7 +104,7 @@ impl ArithmeticEncoder {
 
         self.write_current_encoded_value(output_file);
 
-        debug_print!("\n\n");
+        debug_print!("\n");
     }
 
     fn handle_low_digits(
@@ -140,26 +145,14 @@ impl ArithmeticEncoder {
         output_file: &mut File,
     ) {
         for digit in emitted_digits {
-            if let Some(current_encoded_value) = self.current_encoded_value {
-                match 10u32.checked_mul(current_encoded_value) {
-                    Some(mul) => {
-                        match mul.checked_add(digit) {
-                            Some(add) => {
-                                self.current_encoded_value = Some(add);
-                            }
-                            None => {
-                                self.write_current_encoded_value(output_file);
-                                self.current_encoded_value = Some(digit);
-                            }
-                        }
-                    }
-                    None => {
-                        self.write_current_encoded_value(output_file);
-                        self.current_encoded_value = Some(digit);
-                    }
-                }
+            if self.current_encoded_value_digits < 9 {
+                self.current_encoded_value *= 10;
+                self.current_encoded_value += digit;
+                self.current_encoded_value_digits += 1;
             } else {
-                self.current_encoded_value = Some(digit);
+                self.write_current_encoded_value(output_file);
+                self.current_encoded_value = digit;
+                self.current_encoded_value_digits = 1;
             }
         }
     }
@@ -168,12 +161,10 @@ impl ArithmeticEncoder {
         &self, 
         output_file: &mut File,
     ) {
-        if let Some(encoded_value) = self.current_encoded_value {
-            let encoded_value_buffer = encoded_value.to_le_bytes();
-            if let Err(e) = output_file.write_all(&encoded_value_buffer) {
-                eprintln!("Erro ao gravar no arquivo de saída: {}", e);
-                std::process::exit(1);
-            };
-        }
+        let current_encoded_value_bytes = self.current_encoded_value.to_le_bytes();
+        if let Err(e) = output_file.write_all(&current_encoded_value_bytes) {
+            eprintln!("\nErro ao gravar no arquivo de saída: {}\n", e);
+            std::process::exit(1);
+        };
     }
 }

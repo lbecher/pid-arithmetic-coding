@@ -97,17 +97,17 @@ impl SymbolsTable {
     pub fn calculate_probabilities(
         &mut self,
     ) {
-        let mut cumulative_probability = 1.0;
+        let mut cumulative_probability = 0.0;
         let n = self.symbols_count as f64;
         for symbol in self.symbols.iter_mut() {
             let n_sigma = symbol.count as f64;
             let probability = n_sigma / n;
 
             symbol.probability_range = (
-                cumulative_probability - probability, 
-                cumulative_probability,
+                cumulative_probability, 
+                cumulative_probability + probability,
             );
-            cumulative_probability = symbol.probability_range.0;
+            cumulative_probability += probability;
 
             debug_print!("\nSímbolo: {}; Quantidade: {}; Probabilidade: {}; Intervalo de probabilidade: {:?};", 
                 String::from_utf8(vec![symbol.symbol]).unwrap(), 
@@ -203,6 +203,13 @@ impl ArithmeticCoding {
         self.high
     }
 
+    pub fn get_high_digits(
+        &self,
+    ) -> u32 {
+        self.high_digits
+    }
+
+
     pub fn get_high_divisor(
         &self,
     ) -> u32 {
@@ -245,7 +252,6 @@ impl ArithmeticCoding {
     pub fn calculate_arithmetic_coding(
         &mut self,
         symbol: u8,
-        operation: Operation,
     ) -> Vec<u32> {
         let (
             low_range,
@@ -256,13 +262,8 @@ impl ArithmeticCoding {
         
         let old_low = self.low;
 
-        self.high = old_low + ((range * high_range) as u32) - 1;
-        self.low = old_low + ((range * low_range) as u32);
-
         self.low = old_low + ((range * low_range) as u32);
         self.high = old_low + ((range * high_range) as u32) - 1;
-
-        self.adjust_low_and_high();
 
         debug_print!("\n       {} |\t{}\t{}\t|",
             String::from_utf8([symbol].to_vec()).unwrap(),
@@ -276,22 +277,12 @@ impl ArithmeticCoding {
         let mut high_first_digit = self.high / self.high_divisor;
 
         while low_first_digit == high_first_digit {
-            match operation {
-                Operation::Encode => {
-                    self.low = (self.low - low_first_digit * self.high_divisor) * 10;
-                    self.high = (self.high - high_first_digit * self.high_divisor) * 10 + 9;
-                }
-                Operation::Decode => {
-                    self.high %= self.high_divisor;
-                    self.high *= 10;
-                    self.high += 9;
+            self.high %= self.high_divisor;
+            self.high *= 10;
+            self.high += 9;
 
-                    self.low %= self.high_divisor;
-                    self.low *= 10;
-                }
-            }
-
-            self.adjust_low_and_high();
+            self.low %= self.high_divisor;
+            self.low *= 10;
 
             debug_print!(" {}\n         |\t{}\t{}\t|",
                 low_first_digit,
@@ -306,17 +297,5 @@ impl ArithmeticCoding {
         }
 
         emitted_digits
-    }
-
-    fn adjust_low_and_high(
-        &mut self,
-    ) {
-        let high_digits = (self.high as f64).log10() as u32 + 1;
-        if high_digits < self.high_digits {
-            let digits_diff = self.high_digits - high_digits;
-            let multiplier = 10u32.pow(digits_diff);
-            self.low *= multiplier;
-            self.high *= multiplier;
-        }
     }
 }
