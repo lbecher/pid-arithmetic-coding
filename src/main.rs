@@ -240,7 +240,7 @@ fn main() {
             encoder.encode(&mut input_file, &mut output_file);
             let arithmetic_coding = encoder.get_arithmetic_coding();
 
-            // obtém tamanho do arquivo de saída
+            // obtém tamanho da região codificada do arquivo
 
             let encoded_data_len = match output_file.metadata() {
                 Ok(metadata) => metadata.len(),
@@ -249,8 +249,7 @@ fn main() {
                     std::process::exit(1);
                 }
             };
-
-            println!("\nTamanho da região codificada do arquivo: {} bytes.", encoded_data_len);
+            println!("\nTamanho dos dados codificados: {} bytes.", encoded_data_len);
 
             // grava estrutura de dados no arquivo de saída
 
@@ -258,6 +257,17 @@ fn main() {
                 eprintln!("\nErro ao gravar no arquivo de saída: {}\n", e);
                 std::process::exit(1);
             };
+
+            // obtém tamanho da estrutura de dados
+
+            let symbols_table_len = match output_file.metadata() {
+                Ok(metadata) => metadata.len() - encoded_data_len,
+                Err(e) => {
+                    eprintln!("\nErro ao obter metadados do arquivo de saída: {}\n", e);
+                    std::process::exit(1);
+                }
+            };
+            println!("Tamanho da tabela de símbolos: {} bytes.\n", symbols_table_len);
 
             // grava tamanho da região codificada no arquivo de saída
 

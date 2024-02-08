@@ -110,7 +110,7 @@ impl SymbolsTable {
             cumulative_probability += probability;
 
             debug_print!("\nSímbolo: {}; Quantidade: {}; Probabilidade: {}; Intervalo de probabilidade: {:?};", 
-                String::from_utf8(vec![symbol.symbol]).unwrap(), 
+                symbol.symbol, 
                 symbol.count,
                 probability,
                 symbol.probability_range,
@@ -265,8 +265,8 @@ impl ArithmeticCoding {
         self.low = old_low + ((range * low_range) as u32);
         self.high = old_low + ((range * high_range) as u32) - 1;
 
-        debug_print!("\n       {} |\t{}\t{}\t|",
-            String::from_utf8([symbol].to_vec()).unwrap(),
+        debug_print!("\n\t{}\t|\t{}\t{}\t|",
+            symbol,
             self.low,
             self.high,
         );
@@ -284,7 +284,7 @@ impl ArithmeticCoding {
             self.low %= self.high_divisor;
             self.low *= 10;
 
-            debug_print!(" {}\n         |\t{}\t{}\t|",
+            debug_print!("\t{}\n\t\t|\t{}\t{}\t|",
                 low_first_digit,
                 self.low,
                 self.high,

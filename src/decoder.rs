@@ -46,8 +46,8 @@ impl ArithmeticDecoder {
             self.code += self.get_next_digit_from_current_value(input_file);
         }
 
-        debug_print!("\n Símbolo |\tLow\tHigh\t| Dígito");
-        debug_print!("\n---------|----------------------|---------");
+        debug_print!("\n\tu8\t|\tLow\tHigh\t|");
+        debug_print!("\n\t\t|\t\t\t|");
 
         let symbols_count = self.arithmetic_coding.get_symbols_count();
         let mut decoded_simbols_count: u64 = 0;
