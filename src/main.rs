@@ -2,24 +2,17 @@ use std::env;
 use std::fs;
 use std::io::Read;
 use std::io::Seek;
-use std::io::Write;
 use std::mem::size_of;
-use bincode::{
-    deserialize_from,
-    serialize_into,
-};
+use bincode::deserialize_from;
 
 mod decoder;
 mod encoder;
 
+use arithmetic_coding::Operation;
+use arithmetic_coding::ArithmeticCoding;
 use crate::{
     decoder::ArithmeticDecoder,
     encoder::ArithmeticEncoder,
-};
-
-use arithmetic_coding::{
-    ArithmeticCoding,
-    Operation,
 };
 
 fn main() {
@@ -114,7 +107,6 @@ fn main() {
             }
 
             // abre arquivo de entrada
-
             let mut input_file = match fs::File::open(file_path) {
                 Ok(input_file) => input_file,
                 Err(e) => {
@@ -123,6 +115,7 @@ fn main() {
                 }
             };
 
+            // obtém o número de dígitos do último valor gravado
             let input_file_len = match input_file.metadata() {
                 Ok(metadata) => metadata.len(),
                 Err(e) => {
@@ -131,20 +124,17 @@ fn main() {
                 }
             };
 
-            // obtém o número de dígitos do último valor gravado
+            let last_value_shifts_position = input_file_len - size_of::<u8>() as u64;
+            input_file.seek(std::io::SeekFrom::Start(last_value_shifts_position)).unwrap();
 
-            let last_value_digits_position = input_file_len - size_of::<u8>() as u64;
-            input_file.seek(std::io::SeekFrom::Start(last_value_digits_position)).unwrap();
-
-            let mut last_value_digits_buffer: [u8; 1] = [0];
-            if let Err(e) = input_file.read_exact(&mut last_value_digits_buffer) {
+            let mut last_value_shifts_buffer: [u8; 1] = [0];
+            if let Err(e) = input_file.read_exact(&mut last_value_shifts_buffer) {
                 eprintln!("\nErro ao obter o tamanho dos dados codificados: {}\n", e);
                 std::process::exit(1);
             };
-            let last_value_digits = u8::from_le_bytes(last_value_digits_buffer);
+            let last_value_shifts = u8::from_le_bytes(last_value_shifts_buffer);
 
             // obtém o tamanho em bytes dos dados codificados
-
             let encoded_data_len_position = input_file_len - (size_of::<u64>() + size_of::<u8>()) as u64;
             input_file.seek(std::io::SeekFrom::Start(encoded_data_len_position)).unwrap();
 
@@ -156,7 +146,6 @@ fn main() {
             let encoded_data_len = u64::from_le_bytes(encoded_data_len_buffer);
 
             // lê estrutura de dados principal
-
             input_file.seek(std::io::SeekFrom::Start(encoded_data_len)).unwrap();
 
             let mut arithmetic_coding: ArithmeticCoding = match deserialize_from(&mut input_file) {
@@ -166,20 +155,20 @@ fn main() {
                     std::process::exit(1);
                 }
             };
+
             if let Some(low) = low {
-                arithmetic_coding.set_low(low);
+                arithmetic_coding.low = low;
             }
             if let Some(high) = high {
-                arithmetic_coding.set_high(high);
+                arithmetic_coding.high = high;
             }
 
             // cria arquivo de saída
-
             let mut output_file_path = file_path.to_string();
             output_file_path.truncate(file_path.len() - 3);
             output_file_path += ".dec";
 
-            let mut output_file = match fs::File::create(output_file_path) {
+            let output_file = match fs::File::create(output_file_path) {
                 Ok(output_file) => output_file,
                 Err(e) => {
                     eprintln!("\nErro ao criar o arquivo de saída: {}\n", e);
@@ -188,13 +177,13 @@ fn main() {
             };
 
             // decodifica
-            
             let mut decoder = ArithmeticDecoder::new(
                 arithmetic_coding,
-                last_value_digits,
-                encoded_data_len,
+                encoded_data_len / size_of::<u32>() as u64,
+                last_value_shifts as u32,
+                output_file,
             );
-            decoder.decode(&mut input_file, &mut output_file);
+            decoder.decode(&mut input_file);
         }
         Operation::Encode => {
             let low = match low {
@@ -226,7 +215,7 @@ fn main() {
 
             let output_file_path = String::from(file_path) + ".ac";
 
-            let mut output_file = match fs::File::create(output_file_path) {
+            let output_file = match fs::File::create(output_file_path) {
                 Ok(output_file) => output_file,
                 Err(e) => {
                     eprintln!("\nErro ao criar o arquivo de saída: {}\n", e);
@@ -236,52 +225,8 @@ fn main() {
 
             // codifica
 
-            let mut encoder = ArithmeticEncoder::new(low, high);
-            encoder.encode(&mut input_file, &mut output_file);
-            let arithmetic_coding = encoder.get_arithmetic_coding();
-
-            // obtém tamanho da região codificada do arquivo
-
-            let encoded_data_len = match output_file.metadata() {
-                Ok(metadata) => metadata.len(),
-                Err(e) => {
-                    eprintln!("\nErro ao obter metadados do arquivo de saída: {}\n", e);
-                    std::process::exit(1);
-                }
-            };
-            println!("\nTamanho dos dados codificados: {} bytes.", encoded_data_len);
-
-            // grava estrutura de dados no arquivo de saída
-
-            if let Err(e) = serialize_into(&mut output_file, &arithmetic_coding) {
-                eprintln!("\nErro ao gravar no arquivo de saída: {}\n", e);
-                std::process::exit(1);
-            };
-
-            // obtém tamanho da estrutura de dados
-
-            let symbols_table_len = match output_file.metadata() {
-                Ok(metadata) => metadata.len() - encoded_data_len,
-                Err(e) => {
-                    eprintln!("\nErro ao obter metadados do arquivo de saída: {}\n", e);
-                    std::process::exit(1);
-                }
-            };
-            println!("Tamanho da tabela de símbolos: {} bytes.\n", symbols_table_len);
-
-            // grava tamanho da região codificada no arquivo de saída
-
-            if let Err(e) = output_file.write_all(&encoded_data_len.to_le_bytes()) {
-                eprintln!("\nErro ao gravar no arquivo de saída: {}\n", e);
-                std::process::exit(1);
-            };
-
-            // grava quantidade de dígitos validos do último byte no arquivo de saída
-
-            if let Err(e) = output_file.write_all(&encoder.get_current_encoded_value_digits().to_le_bytes()) {
-                eprintln!("\nErro ao gravar no arquivo de saída: {}\n", e);
-                std::process::exit(1);
-            };
+            let mut encoder = ArithmeticEncoder::new(low, high, output_file);
+            encoder.encode(&mut input_file);
         }
     }
 }

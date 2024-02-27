@@ -22,6 +22,22 @@ Use o comando abaixo para executar em modo *release* e poder processar todos os 
 cargo run -r -- <opções>
 ```
 
+### Opções
+
+Para executar uma codificação, use a opção `--encode` (ou `-e`) seguida por um caminho de arquivo, mais as opções `--low` (ou `-l`) e `--high` (ou `-h`). Tanto `--low` quanto `--high` devem ser seguidos por um valor inteiro não sinalizado. Lembre-se que `--low` deve ser menor que `--high` e a diferença entre ambos deve ser maior que o tamanho em bytes do arquivo a ser codificado. Para `--low`, recomenda-se 0. Para `--high`, recomenda-se um número na progressão geométrica na base dois subtraido por 1.
+
+Para executar uma decodificação, use a opção `--decode` (ou `-d`) seguida por um caminho de um arquivo codificado, com extensão `.ac`.
+
+### Exemplos
+
+```
+cargo run -r -- --encode flag.bmp --low 0 --high 16777215 
+```
+
+```
+cargo run -r -- --decode flag.bmp.ac
+```
+
 ## Instalação de dependências de compilação para Debian/Ubuntu/Linux Mint
 
 Execute os comandos abaixo:

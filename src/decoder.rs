@@ -1,140 +1,181 @@
 use debug_print::debug_print;
+use std::io::Read;
+use std::io::Seek;
+use std::io::Write;
 use std::fs::File;
-use std::io::{
-    Read,
-    Seek,
-    Write,
-};
 
 use arithmetic_coding::ArithmeticCoding;
 
-#[derive(Debug)]
 pub struct ArithmeticDecoder {
-    arithmetic_coding: ArithmeticCoding,
-    last_value_digits: u8,
-    bytes_count: u64,
-    current_bytes_count: u64,
+    ac: ArithmeticCoding,
     code: u32,
-    current_value: Vec<u32>,
+    value: u32,
+    value_count: u64,
+    value_shifts: u32,
+    last_value_shifts: u32,
+    output: File,
 }
 
 impl ArithmeticDecoder {
-    pub fn new(
-        arithmetic_coding: ArithmeticCoding,
-        last_value_digits: u8,
-        bytes_count: u64,
-    ) -> Self {
+    pub fn new(ac: ArithmeticCoding, value_count: u64, last_value_shifts: u32, output: File) -> Self {
+        let code = 0;
+        let value = 0;
+        let value_shifts = 0;
         Self {
-            arithmetic_coding,
-            last_value_digits,
-            bytes_count,
-            current_bytes_count: 0,
-            code: 0,
-            current_value: Vec::new(),
+            ac,
+            code,
+            value,
+            value_count,
+            value_shifts,
+            last_value_shifts,
+            output,
         }
     }
+    
+    pub fn decode(&mut self, input: &mut File) {
+        input.seek(std::io::SeekFrom::Start(0)).unwrap();
+        self.read_value_from_file(input);
 
-    pub fn decode(
-        &mut self,
-        input_file: &mut File,
-        output_file: &mut File,
-    ) {
-        input_file.seek(std::io::SeekFrom::Start(0)).unwrap();
-
-        for _ in 0..self.arithmetic_coding.get_high_digits() {
-            self.code *= 10;
-            self.code += self.get_next_digit_from_current_value(input_file);
+        for _ in 0..self.ac.precision {
+            let bit = self.get_bit_from_value(input);
+            self.code = (self.code << 1) | bit;
         }
 
-        debug_print!("\n\tu8\t|\tLow\tHigh\t|");
-        debug_print!("\n\t\t|\t\t\t|");
+        debug_print!("\t{:012b}\n", self.code);
+        
+        debug_print!("\t\t|\t{:012b}\t{:012b}\t|",
+            self.ac.low,
+            self.ac.high,
+        );
 
-        let symbols_count = self.arithmetic_coding.get_symbols_count();
-        let mut decoded_simbols_count: u64 = 0;
+        let total = self.ac.symbols.total;
+        let mut count: u64 = 0;
 
-        while decoded_simbols_count < symbols_count {
-            let low = self.arithmetic_coding.get_low();
-            let high = self.arithmetic_coding.get_high();
+        while count < total {
+            let low = self.ac.low;
+            let high = self.ac.high;
 
-            let range = (high - low + 1) as f64;
+            let range = (high - low + 1) as u64;
+            let offset = (self.code - low) as u64;
+            let value = ((offset + 1) * (total + 1)) / range;
 
-            let mut probability = (self.code - low + 1) as f64;
-            probability *= symbols_count as f64;
-            probability -= 1.0;
-            probability /= range;
-            probability /= symbols_count as f64;
+            let symbol = self.ac.symbols.get_symbol_by_value(value);
 
-            let symbol = self.arithmetic_coding.get_symbol_by_probability(probability);
-            self.write_decode_symbol(symbol, output_file);
+            self.write_decoded_symbol(symbol as u8);
+            self.update(symbol as u8, input);
 
-            let emitted_digits = self.arithmetic_coding
-                .calculate_arithmetic_coding(symbol);
-            self.handle_emitted_digits(emitted_digits, input_file);
-
-            decoded_simbols_count += 1;
+            count += 1;
         }
 
         debug_print!("\n\n");
     }
 
-    fn handle_emitted_digits(
-        &mut self,
-        emitted_digits: Vec<u32>,
-        input_file: &mut File,
-    ) {
-        for _digit in emitted_digits {
-            self.code %= self.arithmetic_coding.get_high_divisor();
-            self.code *= 10;
-            self.code += self.get_next_digit_from_current_value(input_file);
-        }
-    }
-
-    fn get_next_digit_from_current_value(
-        &mut self,
-        input_file: &mut File,
-    ) -> u32 {
-        if self.current_value.len() > 0 {
-            self.current_value.remove(0)
-        } else {
-            self.read_next_value(input_file);
-            self.current_value.remove(0)
-        }
-    }
-
-    fn read_next_value(
-        &mut self,
-        input_file: &mut File,
-    ) {
-        let mut value_buffer: [u8; 4] = [0,0,0,0];
+    fn update(&mut self, symbol: u8, input: &mut File) {
+        let (
+            low_of_symbol,
+            high_of_symbol,
+        ) = self.ac.symbols.get_low_and_high(symbol);
+    
+        let range = (self.ac.high - self.ac.low + 1) as u64;
+        let total = self.ac.symbols.total + 1;
+        let old_low = self.ac.low;
         
-        if self.current_bytes_count < self.bytes_count {
-            if let Err(e) = input_file.read_exact(&mut value_buffer) {
-                eprintln!("\nErro ao ler os dados codificados: {}\n", e);
-                std::process::exit(1);
-            };
-            self.current_bytes_count += std::mem::size_of::<u32>() as u64;
+        self.ac.low = old_low + ((low_of_symbol * range) / total) as u32;
+        self.ac.high = old_low + ((high_of_symbol * range) / total) as u32 - 1;
+
+        debug_print!("\n\t{}\t|\t{:012b}\t{:012b}\t|",
+            symbol,
+            self.ac.low,
+            self.ac.high,
+        );
+    
+        self.ac.verify_low_and_high();
+
+        while ((self.ac.low ^ self.ac.high) & self.ac.full_bit()) == 0 {
+            self.shift(input);
+
+            self.ac.low = (self.ac.low << 1) & self.ac.full_mask();
+            self.ac.high = ((self.ac.high << 1) & self.ac.full_mask()) | 1;
+
+            debug_print!("\n\t\t|\t{:012b}\t{:012b}\t|",
+                self.ac.low,
+                self.ac.high,
+            );
+
+            debug_print!("\t{:012b}", self.code);
+
+            self.ac.verify_low_and_high();
+        }
+        
+        while (self.ac.low & !self.ac.high & self.ac.half_bit()) != 0 {
+            self.underflow(input);
+
+            self.ac.low = (self.ac.low << 1) & self.ac.half_mask();
+            self.ac.high = self.ac.full_bit() | ((self.ac.high << 1) & self.ac.half_mask()) | 1;
+
+            debug_print!("\n\t\t|\t{:012b}\t{:012b}\t|",
+                self.ac.low,
+                self.ac.high,
+            );
+
+            debug_print!("\t{:012b}", self.code);
+
+            self.ac.verify_low_and_high();
+        }
+    }
+    
+    fn shift(&mut self, input: &mut File) {
+        let bit = self.get_bit_from_value(input);
+        self.code = ((self.code << 1) & self.ac.full_mask()) | bit;
+    }
+
+    fn underflow(&mut self, input: &mut File) {
+        let bit = self.get_bit_from_value(input);
+        self.code = (self.code & self.ac.full_bit()) | ((self.code << 1) & self.ac.half_mask()) | bit;
+    }
+
+    fn get_bit_from_value(&mut self, input: &mut File) -> u32 {
+        let bit: u32;
+        if self.value_shifts == 0 {
+            bit = self.value;
+            self.read_value_from_file(input);
+        } else {
+            bit = self.value >> self.value_shifts;
+            self.value &= u32::MAX >> 32 - self.value_shifts;
+            self.value_shifts -= 1;
+        }
+        bit
+    }
+
+    fn read_value_from_file(&mut self, input: &mut File) {
+        let mut value_buffer: [u8; 4] = [0,0,0,0];
+    
+        if let Err(e) = input.read_exact(&mut value_buffer) {
+            eprintln!("\nErro ao ler os dados codificados: {}\n", e);
+            std::process::exit(1);
+        };
+        if self.value_count > 0 {
+            self.value_count -= 1;
         }
 
-        let mut value = u32::from_le_bytes(value_buffer);
-
-        let max = if self.current_bytes_count < self.bytes_count {
-            9
+        self.value = u32::from_le_bytes(value_buffer);
+        self.value_shifts = if self.is_last_value() {
+            self.last_value_shifts - 1
         } else {
-            self.last_value_digits
+            31
         };
+    }
 
-        for _ in 0..max {
-            self.current_value.insert(0, value % 10);
-            value /= 10;
+    fn is_last_value(&self) -> bool {
+        if self.value_count == 0 {
+            true
+        } else {
+            false
         }
     }
 
-    fn write_decode_symbol(
-        &self, 
-        symbol: u8,
-        output_file: &mut File,
-    ) {
-        if let Err(e) = output_file.write(&[symbol]) {
+    fn write_decoded_symbol(&mut self, symbol: u8) {
+        if let Err(e) = self.output.write(&[symbol]) {
             eprintln!("\nNão foi possível gravar no arquivo de saída: {}\n", e);
             std::process::exit(1);
         }
