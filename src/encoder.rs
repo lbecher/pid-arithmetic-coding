@@ -218,4 +218,11 @@ impl ArithmeticEncoder {
             std::process::exit(1);
         };
     }
+
+    pub fn verify_file_len(&self, file_len: u64) {
+        if file_len >= self.ac.half_bit() as u64 {
+            print!("\nO arquivo é muito grande para a precisão escolhida!\n\n");
+            std::process::exit(1);
+        };
+    }
 }

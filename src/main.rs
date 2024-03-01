@@ -99,6 +99,19 @@ fn main() {
     };
     let file_path = file_path.unwrap();
 
+    if let Some(low) = low {
+        if !verify_gp2_minus_one(low) {
+            println!("\nLow não pertence à PG(2) - 1!\n");
+            std::process::exit(1);
+        }
+    }
+    if let Some(high) = high {
+        if !verify_gp2_minus_one(high) {
+            println!("\nHigh não pertence à PG(2) - 1!\n");
+            std::process::exit(1);
+        }
+    }
+
     match operation.clone() {
         Operation::Decode => {
             if !file_path.ends_with(".ac") {
@@ -202,7 +215,6 @@ fn main() {
             };
 
             // abre arquivo de entrada
-
             let mut input_file = match fs::File::open(file_path) {
                 Ok(input_file) => input_file,
                 Err(e) => {
@@ -210,11 +222,16 @@ fn main() {
                     std::process::exit(1);
                 }
             };
+            let input_file_len = match input_file.metadata() {
+                Ok(metadata) => metadata.len(),
+                Err(e) => {
+                    eprintln!("\nErro ao obter metadados do arquivo de entrada: {}\n", e);
+                    std::process::exit(1);
+                }
+            };
 
             // cria arquivo de saída
-
             let output_file_path = String::from(file_path) + ".ac";
-
             let output_file = match fs::File::create(output_file_path) {
                 Ok(output_file) => output_file,
                 Err(e) => {
@@ -224,9 +241,21 @@ fn main() {
             };
 
             // codifica
-
             let mut encoder = ArithmeticEncoder::new(low, high, output_file);
+            encoder.verify_file_len(input_file_len);
             encoder.encode(&mut input_file);
         }
     }
+}
+
+fn verify_gp2_minus_one(number: u32) -> bool {
+    let number = number as u64;
+    let mut gp: u64 = 1;
+    for _ in 0..32 {
+        if number == gp - 1 {
+            return true;
+        }
+        gp <<= 1;
+    }
+    false
 }
